@@ -1,0 +1,3 @@
+- contigmap.contigs=[250-250]
+- inference.output_prefix=../generated_proteins/rfdiff/length_250/model_outputs/output
+- inference.num_designs=50

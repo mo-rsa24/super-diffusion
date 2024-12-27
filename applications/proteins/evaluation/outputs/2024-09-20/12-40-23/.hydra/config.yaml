@@ -1,0 +1,13 @@
+/projects/superdiff/ProteinMPNN/defaults:
+- base
+inference:
+  name: null
+  gpu_id: 0
+  seed: 123
+  sample_num: 0
+  pt_hub_dir: /projects/superdiff/model_checkpoints/huggingface_models/
+  pmpnn_dir: /projects/superdiff/ProteinMPNN/
+  output_dir: ''
+  input_dir: ../superdiff/framediff_deterministic_ns0.1/model_outputs/
+  samples:
+    seq_per_sample: 8

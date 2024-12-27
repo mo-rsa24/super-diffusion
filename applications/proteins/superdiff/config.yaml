@@ -1,0 +1,387 @@
+inference:
+  models:
+    proteus: ../Proteus/config/inference.yaml
+    framediff: ../se3_diffusion/config/inference.yaml
+  gpu_id: 0
+  seed: 1
+  sample_length: 100
+  mixing_method: mixture
+  kappa: 0.5
+  save_path: test_10
+  self_consistency:
+    enable: false
+data:
+  epoch_length: 10000
+  max_t: 1.0
+  min_t: 0.005
+  num_t: 200
+  freeze_strcture_ratio: 0.0
+  samples_per_eval_length: 4
+  num_eval_lengths: 5
+  msa: false
+  pdb:
+    csv_path: ./data/processed_pdb/metadata.csv
+    msa_csv_path: ./data/processed_pdb/metadata_msa.csv
+    assemble_csv_path: null
+    cluster_path: null
+    weight:
+      base: 1.0
+      binder: 0.0
+    filtering:
+      base:
+        path: ./data/pdb/unique_chains.list
+        subset: null
+        allowed_oligomer: null
+        max_len: 512
+        min_len: 40
+        max_helix_percent: 1.0
+        max_loop_percent: 0.5
+        min_beta_percent: -1.0
+        rog_quantile: 0.96
+      binder:
+        subset: null
+        crop_size: 576
+        binder_max_len: 384
+        binder_min_len: 6
+        binder_max_helix_percent: 1.0
+        binder_max_loop_percent: 0.5
+        binder_min_beta_percent: -1.0
+        binder_rog_quantile: 0.96
+        binder_min_contact_residue: 10
+        binder_min_contact_residue_ratio: 0.1
+  afdb:
+    csv_path: null
+    msa_csv_path: null
+    assemble_csv_path: null
+    cluster_path: null
+    weight: 1.0
+    filtering:
+      path: null
+      subset: null
+      allowed_oligomer: null
+      max_len: 512
+      min_len: 60
+      max_helix_percent: 1.0
+      max_loop_percent: 0.5
+      min_beta_percent: -1.0
+      rog_quantile: 0.96
+  train:
+    crop: false
+    crop_size: 512
+    max_templates: null
+    max_squared_res: 250000
+    max_batch_size: 8
+    msa_num: 64
+    delta_t_range:
+    - 0
+  eval:
+    crop: false
+    crop_size: null
+    max_templates: null
+    max_batch_size: ${data.samples_per_eval_length}
+    max_squared_res: 300000
+    msa_num: 64
+  max_template_hits: 0
+  max_templates: 0
+  subsample_templates: false
+  shuffle_top_k_prefiltered: 0
+interpolant:
+  min_t: ${data.min_t}
+  rots:
+    train_schedule: linear
+    sample_schedule: exp
+    exp_rate: 10
+  trans:
+    train_schedule: linear
+    sample_schedule: linear
+  sampling:
+    num_timesteps: 200
+  self_condition: true
+diffuser:
+  diffuse_trans: true
+  diffuse_rot: true
+  diffuse_sequence: false
+  r3:
+    min_b: 0.1
+    max_b: 20.0
+    coordinate_scaling: 0.1
+  so3:
+    num_omega: 1000
+    num_sigma: 1000
+    min_sigma: 0.1
+    max_sigma: 1.5
+    schedule: logarithmic
+    cache_dir: .cache/
+    use_cached_score: false
+  sequence:
+    blosum_matrix_path: ./data/msa/blosum62-special-MSA.mat
+    total_transition: 200
+    replace_fraction: 0.25
+    uniform_prob: 0.8
+    same_prob: 0.1
+model:
+  profile: false
+  sidechain: false
+  node_embed_size: 256
+  edge_embed_size: 128
+  dropout: 0.0
+  mode: monomer
+  embed:
+    feature:
+      aatype: false
+      index: false
+      rel_pos: 32
+      t: 32
+      distogram:
+        min_bin: 1.0e-05
+        max_bin: 20.0
+        no_bins: 22
+    self_condition:
+      version: template
+      aatype: mask
+      all_atom_mask: backbone
+      struct2seq:
+        enable: false
+        c_s: ${model.node_embed_size}
+        c_z: ${model.edge_embed_size}
+        temperature: 0.1
+        seq_nums: 4
+        esm_name: esm2_t33_650M_UR50D
+        checkpoint_path: ./ProteinMPNN/ca_model_weights/v_48_020.pt
+        cross_embedder:
+          template_pointwise_attention:
+            c_t: ${model.embed.self_condition.struct2seq.c_z}
+            c_z: ${model.edge_embed_size}
+            c_hidden: 32
+            no_heads: 4
+            'inf': 1000000000.0
+          template_column_wise_attention:
+            c_in: ${model.embed.self_condition.struct2seq.c_s}
+            c_hidden: 64
+            no_heads: 4
+    node_embed_size: ${model.node_embed_size}
+    edge_embed_size: ${model.edge_embed_size}
+    'inf': 1000000000.0
+    eps: 1.0e-06
+    template:
+      c_s: ${model.node_embed_size}
+      c_z: ${model.edge_embed_size}
+      c_t: 64
+      'inf': 1000000000.0
+      eps: 1.0e-06
+      distogram:
+        min_bin: 3.25
+        max_bin: 50.75
+        no_bins: 39
+      template_angle_embedder:
+        c_in: 57
+        c_out: ${model.node_embed_size}
+      template_pair_embedder:
+        c_in: 88
+        c_out: ${model.embed.template.c_t}
+      template_pair_stack:
+        c_t: ${model.embed.template.c_t}
+        c_hidden_tri_mul: 32
+        pair_transition_n: 2
+        dropout_rate: 0.25
+        'inf': 1000000000.0
+      template_cross_embedder:
+        template_pointwise_attention:
+          c_t: ${model.embed.template.c_t}
+          c_z: ${model.edge_embed_size}
+          c_hidden: 16
+          no_heads: 4
+          'inf': 1000000000.0
+        template_column_wise_attention:
+          c_in: ${model.node_embed_size}
+          c_hidden: 64
+          no_heads: 4
+  msa_transformer:
+    enable: false
+    c_s: ${model.node_embed_size}
+    c_msa: 256
+    c_z: ${model.edge_embed_size}
+    c_gate_s: 16
+    c_hidden_msa_att: 64
+    no_heads_msa: 4
+    dropout: 0.1
+    num_blocks: 4
+    n_tokens: 23
+    transition_n: 2
+    'inf': 1000000000.0
+    use_flash: false
+    use_ckpt: false
+  ipa:
+    c_s: ${model.node_embed_size}
+    c_z: ${model.edge_embed_size}
+    c_hidden: 256
+    c_skip: 64
+    no_heads: 8
+    no_qk_points: 8
+    no_v_points: 12
+    seq_tfmr_attention: pytorch
+    seq_tfmr_num_heads: 4
+    seq_tfmr_num_layers: 2
+    num_blocks: 4
+    coordinate_scaling: ${diffuser.r3.coordinate_scaling}
+    axial_pair_attention:
+      enable: false
+      c_s: ${model.node_embed_size}
+      c_z: ${model.edge_embed_size}
+      c_rbf: 64
+      c_gate_s: 16
+      c_hidden: 64
+      c_hidden_mul: 128
+      no_heads: 4
+      transition_n: 2
+      'inf': 1000000000.0
+      pair_dropout: 0.25
+    local_triangle_attention_new:
+      enable: true
+      c_s: ${model.node_embed_size}
+      c_z: ${model.edge_embed_size}
+      c_rbf: 64
+      c_gate_s: 16
+      c_hidden: 128
+      c_hidden_mul: 128
+      no_heads: 4
+      transition_n: 2
+      k_neighbour: 32
+      k_linear: 0
+      'inf': 1000000000.0
+      pair_dropout: 0.25
+  auxiliary_heads:
+    distogram_6d:
+      dist:
+        c_z: ${model.edge_embed_size}
+        no_bins: 37
+      theta:
+        c_z: ${model.edge_embed_size}
+        no_bins: 37
+      omega:
+        c_z: ${model.edge_embed_size}
+        no_bins: 37
+      phi:
+        c_z: ${model.edge_embed_size}
+        no_bins: 19
+  strcture2seq:
+    enable: false
+    n_tokens: 21
+    c_s: 128
+    c_t: 64
+    n_layers: 3
+    n_decoder_layers: 1
+    n_neighbors: 48
+    dropout: 0.1
+    noise_level: 0.2
+    crystal_design: false
+    esm_adapter:
+      enable: false
+      model_name: esm2_t30_150M_UR50D
+      encoder_dim: ${model.strcture2seq.c_s}
+      adapt_attention_heads: 8
+      adapter_layer_indices:
+      - -1
+      dropout: 0.3
+    min_t: 0.0
+    max_t: 0.35
+    temperature: 1.0
+    num_seqs: 4
+loss:
+  translation:
+    weight: 1.0
+    t_filter:
+    - 0
+    - 1
+  rotation:
+    weight: 0.5
+    t_filter:
+    - 0.2
+    - 1.0
+    separate_rot_loss: true
+  sequence:
+    weight: 1.0
+    t_filter:
+    - 0.0
+    - 0.35
+    length_bias: false
+    time_bias: false
+  auxillary:
+    weight: 0.25
+    backbone_atom:
+      weight: 1.0
+      t_filter:
+      - 0
+      - 0.2
+    distance_matrix:
+      weight: 1.0
+      t_filter:
+      - 0
+      - 0.2
+    fape:
+      weight: 0.0
+      t_filter:
+      - 0
+      - 0
+    violation:
+      weight: 0.0
+      t_filter:
+      - 0
+      - 0
+    distogram_6d:
+      weight: 0.0
+      t_filter:
+      - 0
+      - 1.0
+      dist:
+        min_bin: 2.0
+        max_bin: 20.0
+        no_bins: 37
+        eps: 1.0e-08
+      theta:
+        min_bin: 0.0
+        max_bin: 360.0
+        no_bins: 37
+        eps: 1.0e-08
+      omega:
+        min_bin: 0.0
+        max_bin: 360.0
+        no_bins: 37
+        eps: 1.0e-08
+      phi:
+        min_bin: 0.0
+        max_bin: 180.0
+        no_bins: 19
+        eps: 1.0e-08
+experiment:
+  name: baseline
+  run_id: null
+  flow_matching_training: false
+  use_ddp: false
+  ema:
+    enable: false
+    decay: 0.999
+  log_freq: 1000
+  num_loader_workers: 3
+  num_epoch: null
+  num_step: 2000000
+  learning_rate: 0.0001
+  prefetch_factor: 100
+  use_gpu: true
+  num_gpus: 2
+  seed: 123456
+  wandb_dir: ./wandb_runs/
+  use_wandb: false
+  ckpt_freq: 100000
+  overwrite_ckpt: false
+  early_ckpt: false
+  warm_start: null
+  use_warm_start_conf: false
+  ckpt_dir: ./ckpt/
+  coordinate_scaling: ${diffuser.r3.coordinate_scaling}
+  t_normalize_clip: 0.1
+  aux_loss_weight: 0.25
+  eval_dir: ./eval_outputs
+  noise_scale: 0.1
+  num_parameters: null
+  freeze_strucutre_model: false

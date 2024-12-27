@@ -1,0 +1,2 @@
+- inference.sample_num=0
+- inference.input_dir=../superdiff/framediff_deterministic_ns0.1/model_outputs/

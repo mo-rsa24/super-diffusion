@@ -1,0 +1,109 @@
+data:
+  csv_path: ./data/processed_pdb/metadata.csv
+  cluster_path: ./data/processed_pdb/clusters-by-entity-30.txt
+  filtering:
+    max_len: 512
+    min_len: 60
+    subset: null
+    allowed_oligomer:
+    - monomeric
+    max_helix_percent: 1.0
+    max_loop_percent: 0.5
+    min_beta_percent: -1.0
+    rog_quantile: 0.96
+  min_t: 0.01
+  samples_per_eval_length: 4
+  num_eval_lengths: 10
+  num_t: 100
+diffuser:
+  diffuse_trans: true
+  diffuse_rot: true
+  r3:
+    min_b: 0.1
+    max_b: 20.0
+    coordinate_scaling: 0.1
+  so3:
+    num_omega: 1000
+    num_sigma: 1000
+    min_sigma: 0.1
+    max_sigma: 1.5
+    schedule: logarithmic
+    cache_dir: .cache/
+    use_cached_score: false
+model:
+  node_embed_size: 256
+  edge_embed_size: 128
+  dropout: 0.0
+  embed:
+    index_embed_size: 32
+    aatype_embed_size: 64
+    embed_self_conditioning: true
+    num_bins: 22
+    min_bin: 1.0e-05
+    max_bin: 20.0
+  ipa:
+    c_s: ${model.node_embed_size}
+    c_z: ${model.edge_embed_size}
+    c_hidden: 256
+    c_skip: 64
+    no_heads: 8
+    no_qk_points: 8
+    no_v_points: 12
+    seq_tfmr_num_heads: 4
+    seq_tfmr_num_layers: 2
+    num_blocks: 4
+    coordinate_scaling: ${diffuser.r3.coordinate_scaling}
+experiment:
+  name: baseline
+  run_id: null
+  use_ddp: false
+  log_freq: 1000
+  batch_size: 256
+  eval_batch_size: ${data.samples_per_eval_length}
+  num_loader_workers: 5
+  num_epoch: 500000
+  learning_rate: 0.0001
+  max_squared_res: 500000
+  prefetch_factor: 100
+  use_gpu: true
+  num_gpus: 2
+  sample_mode: cluster_time_batch
+  wandb_dir: ./
+  use_wandb: false
+  ckpt_freq: 10000
+  early_ckpt: true
+  warm_start: null
+  use_warm_start_conf: false
+  ckpt_dir: ./ckpt/
+  trans_loss_weight: 1.0
+  rot_loss_weight: 0.5
+  rot_loss_t_threshold: 0.2
+  separate_rot_loss: true
+  trans_x0_threshold: 1.0
+  coordinate_scaling: ${diffuser.r3.coordinate_scaling}
+  bb_atom_loss_weight: 1.0
+  bb_atom_loss_t_filter: 0.25
+  dist_mat_loss_weight: 1.0
+  dist_mat_loss_t_filter: 0.25
+  aux_loss_weight: 0.25
+  eval_dir: ./eval_outputs
+  noise_scale: 1.0
+  num_parameters: null
+inference:
+  name: null
+  gpu_id: null
+  seed: 123
+  pt_hub_dir: /projects/superdiff/model_checkpoints/huggingface_models
+  pmpnn_dir: /projects/superdiff/ProteinMPNN
+  output_dir: ../generated_proteins/se3_diffusion
+  weights_path: /projects/superdiff/model_checkpoints/se3_diffusion
+  diffusion:
+    num_t: 500
+    noise_scale: 0.1
+    min_t: 0.01
+  samples:
+    samples_per_length: 10
+    seq_per_sample: 8
+    min_length: 150
+    max_length: 150
+    length_step: 5

@@ -1,0 +1,3 @@
+- inference.name=length_300/model_outputs
+- inference.samples.min_length=300
+- inference.samples.max_length=300

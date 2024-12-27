@@ -1,0 +1,41 @@
+# Configuration for inference on SE(3) diffusion experiments.
+defaults:
+  - base
+
+inference:
+  name: length_150/model_outputs
+  gpu_id: 0  # CUDA GPU to use
+  seed: 123
+
+  # Directory of software, weights, and outputs.
+  pt_hub_dir: /projects/superdiff/model_checkpoints/huggingface_models
+  pmpnn_dir: /projects/superdiff/ProteinMPNN
+  output_dir:  ../generated_proteins/se3_diffusion
+
+  # Path to model weights.
+  weights_path: /projects/superdiff/model_checkpoints/se3_diffusion/paper_weights.pth
+
+  diffusion:
+    # Number of steps.
+    num_t: 500
+    # Analogous to sampling temperature.
+    noise_scale: 0.1
+    # Final t.
+    min_t: 0.01
+  
+  # turn sc on or off
+  mpnn:
+    enable: False
+
+  samples:
+    # Number of backbone samples per sequence length.
+    samples_per_length: 50
+    # Number of ESMFdold samples per backbone sample.
+    seq_per_sample: 8
+    # Minimum sequence length to sample.
+    min_length: 150
+    # Maximum sequence length to sample.
+    max_length: 150
+    # gap between lengths to sample. i.e. this script will sample all lengths
+    # in range(min_length, max_length, length_step)
+    length_step: 5

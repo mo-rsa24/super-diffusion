@@ -1,0 +1,19 @@
+# Configuration for inference on SE(3) diffusion experiments.
+/projects/superdiff/ProteinMPNN/defaults:
+  - base
+
+inference:
+  name: null
+  gpu_id: 0  # CUDA GPU to use
+  seed: 123
+  sample_num: -1
+
+  # Directory of software, weights, and outputs.
+  pt_hub_dir: /projects/superdiff/model_checkpoints/huggingface_models/
+  pmpnn_dir: /projects/superdiff/ProteinMPNN/
+  output_dir: "" 
+  input_dir: ../generated_proteins/proteus/length_250/model_outputs
+
+  samples:
+    # Number of ESMFold samples per backbone sample.
+    seq_per_sample: 8
