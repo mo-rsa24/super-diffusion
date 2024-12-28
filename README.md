@@ -16,9 +16,9 @@ The principled method for efficiently combining multiple pre-trained diffusion m
 
 ## Install dependencies
 
-For Stable Diffusion examples, see [Installing Dependencies for CIFAR and SD]()
+For Stable Diffusion examples, see [Installing Dependencies for CIFAR and SD](/applications/images/README.md)
 
-For Protein examples, see [Installing Dependencies for Protein Models]()
+For Protein examples, see [Installing Dependencies for Protein Models](/applications/proteins/README.md)
 
 ## Using Code & Examples
 
@@ -50,6 +50,16 @@ We outline the high-level organization of the repo in the **_project tree_** and
 
 
 #### CIFAR
+
+**Train:** example for training a single model on CIFAR-10
+```
+python cifar/main.py --config cifar/configs/sm/cifar/vpsde.py --workdir $PWD/cifar/chkpt/ --mode 'train'
+```
+
+**Eval:** example for evaluating a single model on CIFAR-10
+```
+python cifar/main.py --config cifar/configs/sm/cifar/vpsde.py --workdir $PWD/cifar/chkpt/ --mode 'eval_fid'
+```
 
 #### Stable Diffusion (SD)
 
