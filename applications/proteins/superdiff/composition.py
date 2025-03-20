@@ -89,8 +89,6 @@ class ScoreWrapper(torch.nn.Module):
                 )
             else:
                 score = model_out["rot_score"]
-
-            # [1, 100, 3] .... [1, 100, 3, 3] we can get this too
             score_rotvec = score
             score = axis_angle_to_matrix(score_rotvec)
             return score
@@ -109,7 +107,7 @@ class CompositionDiffusion:
         self.comp_diff_conf = comp_diff_conf
 
         self.logger = logging.getLogger(__name__)
-
+        
         if torch.cuda.is_available():
             if self.comp_diff_conf.inference.gpu_id is None:
                 available_gpus = "".join(
@@ -120,10 +118,9 @@ class CompositionDiffusion:
                 self.device = f"cuda:{self.comp_diff_conf.inference.gpu_id}"
         else:
             self.device = "cpu"
-
+        
         # initialize models
         self.models = models
-
 
         self.stochastic = self.comp_diff_conf.inference.stochastic
         
@@ -137,18 +134,21 @@ class CompositionDiffusion:
         
         # initialize SO3 and R3 diffusers
         self._diffuse_rot = comp_diff_conf.diffuser.diffuse_rot
-        self.so3_diffuser = None 
+        self.so3_diffuser = None #so3_diffuser.SO3Diffuser(self.comp_diff_conf.diffuser.so3)
 
         self._diffuse_trans = comp_diff_conf.diffuser.diffuse_trans
-        self.r3_diffuser = None 
+        self.r3_diffuser = None #r3_diffuser.R3Diffuser(self.comp_diff_conf.diffuser.r3)
         
         
         self.diffuser = SE3Diffuser(self.comp_diff_conf.diffuser)
+        # set super-diff hparams
         self.mixing_method = self.comp_diff_conf.inference.mixing_method
         assert self.mixing_method in ["composition", "mixture", "baseline_proteus", "baseline_framediff"]
+        #if self.mixing_method == "baseline_proteus":
         self.proteus_r3_diffuser = proteus_r3_diffuser.R3Diffuser(self.comp_diff_conf.diffuser.r3, stochastic=self.stochastic)
         self.proteus_so3_diffuser = proteus_so3_diffuser.SO3Diffuser(self.comp_diff_conf.diffuser.so3, stochastic=self.stochastic)
         self.proteus_se3_diffuser  = proteus_se3_diffuser.SE3Diffuser(self.proteus_conf.diffuser, stochastic=self.stochastic)
+        #elif self.mixing_method == "baseline_framediff":
         self.framediff_r3_diffuser = framediff_r3_diffuser.R3Diffuser(self.comp_diff_conf.diffuser.r3, stochastic=self.stochastic)
         self.framediff_so3_diffuser = framediff_so3_diffuser.SO3Diffuser(self.comp_diff_conf.diffuser.so3, stochastic=self.stochastic)
         self.framediff_se3_diffuser  = framediff_se3_diffuser.SE3Diffuser(self.framediff_conf.diffuser, stochastic=self.stochastic)
@@ -205,6 +205,7 @@ class CompositionDiffusion:
         for tensor in tensor_list:
             assert list(tensor.shape) == tgt_shape, (list(tensor.shape), tgt_shape)
 
+        #                                             seq_init=seq_t, final_step=sampler.inf_conf.final_step)
     def one_step_proteus(self, i, t, latents, t_placeholder, diffuse_mask, model_out):
         rot_score, trans_score, rigid_pred = None, None, None
 
@@ -281,13 +282,11 @@ class CompositionDiffusion:
                     struct2seq,
                 )
 
-        # latents['rigids_t'] is a [1, N, 7]-dim tensor where [:, :, :4] is rot quaternion and [:, :, 4:] is translation
-        # code below extracts part of tensor depending on whether we are working for translations or rotations
         if component == "trans":
-            component_latent_trans = latents_rigids_t_copy[:, :, 4:]
+            component_latent_trans = latents_rigids_t_copy[:, :, 4:] 
         elif component == "rots":
             component_latent = latents_rigids_t_copy[:, :, :4]
-            comp_latent_rotmats = ru.quat_to_rot(component_latent) # [1, 100, 3, 3]
+            comp_latent_rotmats = ru.quat_to_rot(component_latent)
             u, _, vT = torch.linalg.svd(comp_latent_rotmats)
             prj_comp_latent = u @ vT # [1, 100, 3, 3]
 
@@ -329,7 +328,8 @@ class CompositionDiffusion:
                 )
                 self.check_assert([divlog], tgt_shape=[1])
                 self.val_dict[model_name][component]["divlog"] = divlog
-    def compute_stoch_dll(self, t, x, dx, component, f_x):
+
+    def compute_stoch_dll(self, t, x, dx, component):
 
         for model_name in self.val_dict:
             score = self.val_dict[model_name][component]['score']
@@ -340,10 +340,11 @@ class CompositionDiffusion:
                 beta_t = 0.5 * self.r3_diffuser.diffusion_coef(t)**2
                 beta_t = torch.tensor(beta_t).to(self.device)
 
+                f_x = torch.tensor(self.r3_diffuser.drift_coef(x, t)).to(self.device)
                 dlog_alphadt = -1/2 * self.r3_diffuser.b_t(t)
                                    
-                output = ndim * self.dt * dlog_alphadt
-                output += ((dx + self.dt*(f_x - beta_t*score))*score)
+                output = ndim * self.dt * dlog_alphadt - self.dt * beta_t*score**2
+                output += ((dx + self.dt*f_x)*score)
             elif component == "rots":
                 beta_t = 0.5 * self.so3_diffuser.diffusion_coef(t)**2
                 beta_t = torch.tensor(beta_t).to(self.device)
@@ -351,8 +352,7 @@ class CompositionDiffusion:
                 output = -self.dt * beta_t*score**2
                 output += ((dx) * score)
 
-            output = output.sum()
-            self.val_dict[model_name][component]['dlldt'] = output
+            self.val_dict[model_name][component]['dlldt'] = output.sum()
 
 
     def compute_dll(self, t, vel_mixed, dlog_alphadt_x, beta_t, component):
@@ -374,20 +374,6 @@ class CompositionDiffusion:
             ).squeeze()
             
             self.val_dict[model_name][component]['dlldt'] = dlldt.sum()
-
-    def kappa_OR(self, i, t, component):
-        if component == "trans":
-            log_like_1 = self.ll_proteus_trans[:, i]
-            log_like_2 = self.ll_framediff_trans[:, i]
-            T = self.T_trans
-            logp=self.logp_trans
-        elif component == "rots":
-            log_like_1 = self.ll_proteus_rots[:, i]
-            log_like_2 = self.ll_framediff_rots[:, i]
-            T = self.T_rots
-            logp=self.logp_rots
-        kappa = torch.softmax(torch.stack([T*(log_like_1+logp), T*(log_like_2)]), 0)[0]
-        return kappa
 
     def kappa_AND(self, i, t, component, beta_t, eps, f_x):
         sdlogdx_1 = self.val_dict['proteus'][component]['score'].to(dtype=torch.float64)
@@ -424,15 +410,29 @@ class CompositionDiffusion:
         kappa = -self.dt * beta_t * delta_sdlogdx * (sdlogdx_1 + sdlogdx_2)
 
         kappa += ((dx_ind + self.dt*f_x)*delta_sdlogdx)
-        kappa_div = (self.dt*2*beta_t*torch.square(delta_sdlogdx)).sum() 
+        kappa_div = (self.dt*2*beta_t*torch.square(delta_sdlogdx)).sum()
         kappa /= kappa_div
         kappa = -kappa.sum()
 
         lift = (logp * sigma_t)/self.num_inference_steps
 
         kappa += lift / kappa_div
-        return kappa
-        
+        return kappa 
+
+    def kappa_OR(self, i, t, component):
+        if component == "trans":
+            log_like_1 = self.ll_proteus_trans[:, i]
+            log_like_2 = self.ll_framediff_trans[:, i]
+            T = self.T_trans
+            logp=self.logp_trans
+        elif component == "rots":
+            log_like_1 = self.ll_proteus_rots[:, i]
+            log_like_2 = self.ll_framediff_rots[:, i]
+            T = self.T_rots
+            logp=self.logp_rots
+        kappa = torch.softmax(torch.stack([T*(log_like_1+logp), T*(log_like_2)]), 0)[0]
+        return kappa 
+
     def compute_kappas(self, i, t, x=None, beta_t_trans=None, beta_t_rots=None, eps=None, f_x_trans=None):
         if self.kappa_operator == "OR":
             kappa_trans = self.kappa_OR(i, t, "trans")
@@ -441,7 +441,7 @@ class CompositionDiffusion:
             kappa_trans = self.kappa_AND(i, t, "trans", beta_t_trans, eps, f_x_trans)
             kappa_rots = self.kappa_AND(i, t, "rots", beta_t_rots, eps, 0)
         return kappa_trans, kappa_rots
-        
+
     def latent_mixing(self, latents):
         reverse_steps = np.linspace(self.min_t, 1.0, self.num_inference_steps)[::-1]
         esm_rate = self.proteus_conf.inference.diffusion.rate_t_esm_condition
@@ -466,7 +466,7 @@ class CompositionDiffusion:
         all_bb_prots = []
         all_bb_mask = []
         all_bb_0_pred = []
-        
+
         proteus_model_out, model_out = None, None
         diffuse_mask = (1 - latents['fixed_mask']) * latents['res_mask']
         for i, t in tqdm(enumerate(reverse_steps), colour='MAGENTA'):
@@ -477,16 +477,11 @@ class CompositionDiffusion:
             proteus_model_out, proteus_rots_score, proteus_trans_score, _ = self.one_step_proteus(i, t, latents,  t_placeholder, diffuse_mask, proteus_model_out)
             _, framediff_rots_score, framediff_trans_score, _ = self.one_step_framediff(i, t, latents, t_placeholder)
 
-            x_t_trans = latents["rigids_t"][:, :, 4:] 
+            x_t_trans = latents["rigids_t"][:, :, 4:]
             x_t_trans = self.r3_diffuser._scale(x_t_trans)
 
             eps=torch.randn(x_t_trans.shape).to(self.device) * self.noise_scale
-            if t> self.min_t:
-                self.val_dict['proteus']['rots']['score'] = proteus_rots_score
-                self.val_dict['proteus']['trans']['score'] = proteus_trans_score
-                self.val_dict['framediff']['rots']['score'] = framediff_rots_score
-                self.val_dict['framediff']['trans']['score'] = framediff_trans_score
-            
+
             beta_t_trans = 0.5 * self.r3_diffuser.diffusion_coef(t)**2
             beta_t_trans = torch.tensor(beta_t_trans).to(self.device)
             f_x_trans = self.r3_diffuser.drift_coef(x_t_trans, t)
@@ -494,37 +489,39 @@ class CompositionDiffusion:
             beta_t_rots = 0.5 * self.so3_diffuser.diffusion_coef(t)**2
             beta_t_rots = torch.tensor(beta_t_rots).to(self.device)
 
+            self.val_dict['proteus']['rots']['score'] = proteus_rots_score
+            self.val_dict['proteus']['trans']['score'] = proteus_trans_score
+            self.val_dict['framediff']['rots']['score'] = framediff_rots_score
+            self.val_dict['framediff']['trans']['score'] = framediff_trans_score
 
-            if self.mixing_method == "baseline_proteus":
-                kappa_trans = torch.tensor(1)
-                kappa_rots = torch.tensor(1)
-            elif self.mixing_method == "baseline_framediff":
-                kappa_trans = torch.tensor(0)
-                kappa_rots = torch.tensor(0)
-            elif self.mixing_method == "mixture":
-                self.kappa = float(self.kappa)
-                kappa_trans  = torch.tensor(self.kappa)
-                kappa_rots = torch.tensor(self.kappa)
-            elif self.mixing_method == "composition":
-                if t> self.min_t:
-                    kappa_trans, kappa_rots = self.compute_kappas(i, t_, x=x_t_trans, beta_t_rots=beta_t_rots, beta_t_trans=beta_t_trans, eps=eps, f_x_trans=f_x_trans)
-            
-            # compute log-likelihoods
+
             if t> self.min_t:
+                if self.mixing_method == "baseline_proteus":
+                    kappa_trans = torch.tensor(1)
+                    kappa_rots = torch.tensor(1)
+                elif self.mixing_method == "baseline_framediff":
+                    kappa_trans = torch.tensor(0)
+                    kappa_rots = torch.tensor(0)
+                elif self.mixing_method == "mixture":
+                    self.kappa = float(self.kappa)
+                    kappa_trans  = torch.tensor(self.kappa)
+                    kappa_rots = torch.tensor(self.kappa)
+                elif self.mixing_method == "composition":
+                    kappa_trans, kappa_rots = self.compute_kappas(i, t_, x=x_t_trans, beta_t_rots=beta_t_rots, beta_t_trans=beta_t_trans, eps=eps, f_x_trans=f_x_trans)
+
+
+            #if t> self.min_t:
                 with torch.no_grad():
-                   dx_trans = -dt * (f_x_trans
-                           - 2*beta_t_trans*(framediff_trans_score + kappa_trans*(proteus_trans_score - framediff_trans_score)))
+                   dx_trans = -dt * (self.r3_diffuser.drift_coef(x_t_trans, t) 
+                                     - 2*beta_t_trans*(framediff_trans_score + kappa_trans*(proteus_trans_score - framediff_trans_score)))
                    dx_trans +=  torch.sqrt(2*beta_t_trans*dt)*eps
-                   #dx_trans = dx_trans.to(dtype=torch.float64)
 
                    dx_rots = dt*2*beta_t_rots*(framediff_rots_score + kappa_rots*(proteus_rots_score - framediff_rots_score))
                    dx_rots += torch.sqrt(2*beta_t_rots*dt)*eps
-                   #dx_rots = dx_rots.to(dtype=torch.float64)
                  
                    if self.mixing_method == "composition":
-                       #if diffuse_mask is not None:
-                       self.compute_stoch_dll(t, x_t_trans, dx_trans,  "trans", f_x=f_x_trans)
-                       self.compute_stoch_dll(t, None, dx_rots, "rots", f_x=0)
+                       self.compute_stoch_dll(t, x_t_trans, dx_trans,  "trans")
+                       self.compute_stoch_dll(t, None, dx_rots, "rots")
 
 
                        self.ll_proteus_trans[:, i + 1] = self.ll_proteus_trans[:, i] + self.val_dict['proteus']['trans']['dlldt']
@@ -650,7 +647,6 @@ class CompositionDiffusion:
         x_t_trans = latents["rigids_t"][:, :, 4:] 
         x_t_trans = self.r3_diffuser._scale(x_t_trans)
 
-        # beta_t = sigma(t)^2 [d/dt log(s_t) - d/dt log(alpha_t)]
         t_ = torch.tensor(t)
         
         def logsigma_t(t):

@@ -171,7 +171,6 @@ class Sampler:
 
 def run_one(sampler, global_conf, i):
 
-    assert "../superdiff/generated_proteins/" in global_conf.inference.save_path
     root_name = global_conf.inference.save_path.split("/")[3] + f"_SEED{i}"
     tags = [f"SEED{i}", f'temp{global_conf.inference.temp_trans}', 
             f"seqlen{global_conf.inference.sample_length}", f"logp{global_conf.inference.logp_trans}"]
@@ -193,6 +192,7 @@ def run_one(sampler, global_conf, i):
             tags=tags)
     #wandb.init(settings=wandb.Settings(code_dir="."))
     wandb.run.log_code(".")
+    print("global_conf", global_conf)
     wandb.config.update(global_conf)
 
 
