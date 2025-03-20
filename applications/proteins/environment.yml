@@ -253,4 +253,3 @@ dependencies:
     - widgetsnbextension==4.0.13
     - yarl==1.18.3
     - zipp==3.21.0
-prefix: /h/mskrt/.conda/envs/superdiff_proteins
